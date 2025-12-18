@@ -7,21 +7,23 @@ import database
 app = FastAPI()
 
 # --- 1. ESQUEMAS PYDANTIC (Validación de entrada) ---
-
-# Esquema para crear Usuarios
-class UsuarioSchema(BaseModel):
-    nombre: str
-    email: str
-    
-    class Config:
-        from_attributes = True
-
 # Esquema para crear Productos
 class ItemSchema(BaseModel):
     nombre: str
     precio: float
     en_oferta: bool = False
+    # owner_id: int  <-- Podríamos poner esto si quisiéramos verlo
     
+    class Config:
+        from_attributes = True
+
+class UsuarioSchema(BaseModel):
+    nombre: str
+    email: str
+    # AQUÍ ESTÁ EL TRUCO: Añadimos una lista de items
+    # Por defecto es una lista vacía [] para que no falle si no tiene nada
+    productos: list[ItemSchema] = [] 
+
     class Config:
         from_attributes = True
 
@@ -77,3 +79,13 @@ def crear_item_para_usuario(user_id: int, item: ItemSchema, db: Session = Depend
 def leer_items(db: Session = Depends(get_db)):
     items = db.query(modelos.Producto).all()
     return items
+
+# FÍJATE AQUÍ: Añadimos response_model=UsuarioSchema
+# Esto obliga a FastAPI a mirar tu esquema, ver que hay una lista de 'productos',
+# y buscar esos datos en la base de datos automáticamente.
+@app.get("/usuarios/{user_id}", response_model=UsuarioSchema)
+def leer_usuario(user_id: int, db: Session = Depends(get_db)):
+    usuario = db.query(modelos.Usuario).filter(modelos.Usuario.id == user_id).first()
+    if usuario is None:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return usuario
