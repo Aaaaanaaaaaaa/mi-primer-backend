@@ -1,26 +1,31 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-
-# Importamos tus archivos nuevos
-import modelos
+import modelos as modelos # OJO: Asegúrate de que importas tus modelos
 import database
 
 app = FastAPI()
 
-# --- 1. CONFIGURACIÓN PYDANTIC (Lo que ve el usuario) ---
-# Usamos esto para validar que nos envían los datos correctos.
+# --- 1. ESQUEMAS PYDANTIC (Validación de entrada) ---
+
+# Esquema para crear Usuarios
+class UsuarioSchema(BaseModel):
+    nombre: str
+    email: str
+    
+    class Config:
+        from_attributes = True
+
+# Esquema para crear Productos
 class ItemSchema(BaseModel):
     nombre: str
     precio: float
     en_oferta: bool = False
-
-    # Esta config es necesaria para que Pydantic se lleve bien con el ORM
+    
     class Config:
         from_attributes = True
 
-# --- 2. LA DEPENDENCIA (El Vendor) ---
-# Esta función entrega la base de datos y la cierra al terminar
+# --- 2. DEPENDENCIA DE BASE DE DATOS ---
 def get_db():
     db = database.SessionLocal()
     try:
@@ -28,45 +33,47 @@ def get_db():
     finally:
         db.close()
 
-# --- 3. RUTAS (EndPoints) ---
+# --- 3. RUTAS (ENDPOINTS) ---
 
-# RUTA POST: Crear Producto
-@app.post("/items")
-def crear_item(item: ItemSchema, db: Session = Depends(get_db)):
-    # FÍJATE EN LA MAGIA ✨:
-    # Ya no escribimos SQL "INSERT INTO...".
-    # Creamos un OBJETO del modelo (el de modelos.py) usando los datos del esquema.
-    nuevo_producto = modelos.Producto(
-        nombre=item.nombre, 
-        precio=item.precio, 
-        en_oferta=item.en_oferta
+# RUTA NUEVA: Crear Usuario 👤
+@app.post("/usuarios")
+def crear_usuario(usuario: UsuarioSchema, db: Session = Depends(get_db)):
+    # Creamos el objeto Usuario de la base de datos
+    nuevo_usuario = modelos.Usuario(nombre=usuario.nombre, email=usuario.email)
+    
+    db.add(nuevo_usuario)
+    db.commit()
+    db.refresh(nuevo_usuario)
+    
+    return nuevo_usuario
+
+# RUTA MODIFICADA: Crear Producto asignado a un Usuario 📦
+# Fíjate: Añadimos 'user_id' a la ruta para saber de quién es el producto
+@app.post("/usuarios/{user_id}/items")
+def crear_item_para_usuario(user_id: int, item: ItemSchema, db: Session = Depends(get_db)):
+    
+    # PASO 1: Verificar que el usuario existe (Buena práctica)
+    usuario = db.query(modelos.Usuario).filter(modelos.Usuario.id == user_id).first()
+    
+    if usuario is None:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    # PASO 2: Crear el producto vinculándolo al ID del usuario
+    nuevo_item = modelos.Producto(
+        nombre=item.nombre,
+        precio=item.precio,
+        en_oferta=item.en_oferta,
+        propietario_id=user_id  # <--- AQUÍ ESTÁ LA MAGIA DE LA RELACIÓN
     )
     
-    db.add(nuevo_producto)  # Lo añadimos a la sesión (como ponerlo en el carrito)
-    db.commit()             # Confirmamos la compra (Guardar en DB)
-    db.refresh(nuevo_producto) # Recargamos el objeto para tener su ID nuevo
+    db.add(nuevo_item)
+    db.commit()
+    db.refresh(nuevo_item)
     
-    return nuevo_producto
+    return nuevo_item
 
-# RUTA GET: Leer Productos
+# RUTA GET: Ver todos los productos (y verás que incluyen el ID de su dueño)
 @app.get("/items")
 def leer_items(db: Session = Depends(get_db)):
-    # Ya no hay "SELECT * FROM".
-    # Le decimos a la DB: "Dame todos los registros de la tabla Producto"
     items = db.query(modelos.Producto).all()
     return items
-
-# RUTA DELETE: Borrar Producto
-@app.delete("/items/{item_id}")
-def borrar_item(item_id: int, db: Session = Depends(get_db)):
-    # 1. Buscamos el producto por ID
-    producto = db.query(modelos.Producto).filter(modelos.Producto.id == item_id).first()
-    
-    if producto is None:
-        return {"error": "Producto no encontrado"}
-    
-    # 2. Lo borramos
-    db.delete(producto)
-    db.commit()
-    
-    return {"mensaje": "Producto eliminado"}
