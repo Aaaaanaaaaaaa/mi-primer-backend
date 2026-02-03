@@ -5,6 +5,8 @@ from pydantic import BaseModel
 import modelos as modelos 
 import database
 import seguridad
+from fastapi.security import OAuth2PasswordBearer
+from jose import jwt, JWTError
 
 app = FastAPI()
 
@@ -16,6 +18,17 @@ class ItemSchema(BaseModel):
     en_oferta: bool = False
     # owner_id: int  <-- Podríamos poner esto si quisiéramos verlo
     
+    class Config:
+        from_attributes = True
+
+# --- ESQUEMA SOLO PARA MOSTRAR DATOS (SALIDA) ---
+# Fíjate que NO tiene el campo password. ¡Seguridad ante todo!
+class UsuarioPublico(BaseModel):
+    id: int
+    nombre: str
+    email: str
+    productos: list[ItemSchema] = [] # Queremos ver sus productos
+
     class Config:
         from_attributes = True
 
@@ -33,6 +46,34 @@ def get_db():
     finally:
         db.close()
 
+# 1. EL CERROJO 🔒
+# Esto le dice a FastAPI: "Para entrar aquí, busca un token en la cabecera"
+# Y si no hay, manda al usuario a la ruta "/token" para que se loguee.
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+# 2. EL PORTERO (Verificar Token) 🦍
+# Esta función coge el token, lo lee, y busca al usuario en la base de datos.
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="No se pudieron validar las credenciales",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        # Decodificamos el token usando la clave secreta que está en seguridad.py
+        payload = jwt.decode(token, seguridad.SECRET_KEY, algorithms=[seguridad.ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+        
+    # Buscamos al usuario en la BD
+    user = db.query(modelos.Usuario).filter(modelos.Usuario.email == email).first()
+    if user is None:
+        raise credentials_exception
+        
+    return user
 # --- 3. RUTAS (ENDPOINTS) ---
 
 # RUTA NUEVA: Crear Usuario 👤
@@ -120,3 +161,9 @@ def login_para_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db
     
     # 4. DEVOLVER EL TOKEN
     return {"access_token": access_token, "token_type": "bearer"}
+
+# RUTA PRIVADA: Ver mi propio perfil 🕵️‍♀️
+# CAMBIO AQUÍ 👇: Usamos UsuarioPublico en lugar de UsuarioSchema
+@app.get("/users/me", response_model=UsuarioPublico)
+def read_users_me(current_user: modelos.Usuario = Depends(get_current_user)):
+    return current_user
