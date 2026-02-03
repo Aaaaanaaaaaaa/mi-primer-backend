@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import modelos as modelos # OJO: Asegúrate de que importas tus modelos
 import database
+import seguridad
 
 app = FastAPI()
 
@@ -20,12 +21,8 @@ class ItemSchema(BaseModel):
 class UsuarioSchema(BaseModel):
     nombre: str
     email: str
-    # AQUÍ ESTÁ EL TRUCO: Añadimos una lista de items
-    # Por defecto es una lista vacía [] para que no falle si no tiene nada
-    productos: list[ItemSchema] = [] 
-
-    class Config:
-        from_attributes = True
+    password: str # <--- Nuevo campo (Texto plano que envía el usuario)
+    # productos: list[ItemSchema] = [] # <-- Esto quítalo de aquí, luego te explico por qué (*)
 
 # --- 2. DEPENDENCIA DE BASE DE DATOS ---
 def get_db():
@@ -40,8 +37,16 @@ def get_db():
 # RUTA NUEVA: Crear Usuario 👤
 @app.post("/usuarios")
 def crear_usuario(usuario: UsuarioSchema, db: Session = Depends(get_db)):
-    # Creamos el objeto Usuario de la base de datos
-    nuevo_usuario = modelos.Usuario(nombre=usuario.nombre, email=usuario.email)
+    # 1. TRITURAMOS LA CONTRASEÑA 
+    password_segura = seguridad.get_password_hash(usuario.password)
+    
+    # 2. Creamos el usuario con la contraseña YA hasheada
+    # Fíjate: guardamos en 'hashed_password' lo que salió de la trituradora
+    nuevo_usuario = modelos.Usuario(
+        nombre=usuario.nombre, 
+        email=usuario.email,
+        hashed_password=password_segura 
+    )
     
     db.add(nuevo_usuario)
     db.commit()

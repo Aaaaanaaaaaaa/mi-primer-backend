@@ -7,12 +7,12 @@ class Usuario(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     nombre = Column(String, index=True)
-    email = Column(String, unique=True, index=True) # unique=True: No puede haber dos emails iguales
+    email = Column(String, unique=True, index=True)
+    # CAMBIO AQUÍ 👇
+    hashed_password = Column(String) 
     
-    # RELACIÓN:
-    # Esto dice: "Mis productos están en la tabla Producto, conectados por el campo 'owner'"
     productos = relationship("Producto", back_populates="propietario")
-
+    
 class Producto(Base):
     __tablename__ = "productos"
 
