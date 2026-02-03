@@ -1,7 +1,8 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-import modelos as modelos # OJO: Asegúrate de que importas tus modelos
+import modelos as modelos 
 import database
 import seguridad
 
@@ -94,3 +95,28 @@ def leer_usuario(user_id: int, db: Session = Depends(get_db)):
     if usuario is None:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     return usuario
+
+# RUTA LOGIN: El usuario da usuario/contraseña -> Recibe Token
+@app.post("/token")
+def login_para_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    # NOTA: OAuth2PasswordRequestForm siempre guarda el usuario en "username" y la clave en "password".
+    # Aunque nosotros usemos email, el formulario lo llama 'username'.
+    
+    # 1. BUSCAR AL USUARIO (Por email)
+    usuario = db.query(modelos.Usuario).filter(modelos.Usuario.email == form_data.username).first()
+    
+    # 2. VERIFICAR SI EXISTE Y SI LA CLAVE ES CORRECTA
+    if not usuario or not seguridad.verify_password(form_data.password, usuario.hashed_password):
+        # Si falla algo, lanzamos error 401 (No autorizado)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Email o contraseña incorrectos",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    # 3. SI TODO ESTÁ OK: GENERAR TOKEN
+    # Guardamos el email dentro del token (en el campo "sub")
+    access_token = seguridad.create_access_token(data={"sub": usuario.email})
+    
+    # 4. DEVOLVER EL TOKEN
+    return {"access_token": access_token, "token_type": "bearer"}
