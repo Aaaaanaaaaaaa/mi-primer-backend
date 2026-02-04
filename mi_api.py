@@ -10,6 +10,8 @@ from jose import jwt, JWTError
 
 app = FastAPI()
 
+modelos.Base.metadata.create_all(bind=database.engine)
+
 # --- 1. ESQUEMAS PYDANTIC (Validación de entrada) ---
 # Esquema para crear Productos
 class ItemSchema(BaseModel):
