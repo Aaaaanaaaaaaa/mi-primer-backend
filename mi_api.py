@@ -98,21 +98,15 @@ def crear_usuario(usuario: UsuarioSchema, db: Session = Depends(get_db)):
 
 # RUTA MODIFICADA: Crear Producto asignado a un Usuario 📦
 # Fíjate: Añadimos 'user_id' a la ruta para saber de quién es el producto
-@app.post("/usuarios/{user_id}/items")
-def crear_item_para_usuario(user_id: int, item: ItemSchema, db: Session = Depends(get_db)):
+@app.post("/items", response_model=ItemSchema)
+def crear_item_propio(item: ItemSchema, db: Session = Depends(get_db), current_user: modelos.Usuario = Depends(get_current_user)):
     
-    # PASO 1: Verificar que el usuario existe (Buena práctica)
-    usuario = db.query(modelos.Usuario).filter(modelos.Usuario.id == user_id).first()
-    
-    if usuario is None:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    
-    # PASO 2: Crear el producto vinculándolo al ID del usuario
+    # Crear el producto vinculándolo al ID del usuario
     nuevo_item = modelos.Producto(
         nombre=item.nombre,
         precio=item.precio,
         en_oferta=item.en_oferta,
-        propietario_id=user_id  # <--- AQUÍ ESTÁ LA MAGIA DE LA RELACIÓN
+        propietario_id=current_user.id  
     )
     
     db.add(nuevo_item)
@@ -167,3 +161,30 @@ def login_para_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db
 @app.get("/users/me", response_model=UsuarioPublico)
 def read_users_me(current_user: modelos.Usuario = Depends(get_current_user)):
     return current_user
+# RUTA MODIFICADA: Borrar Item (Solo el dueño) 👮‍♀️
+@app.delete("/items/{item_id}")
+def borrar_item(
+    item_id: int, 
+    db: Session = Depends(get_db),
+    current_user: modelos.Usuario = Depends(get_current_user) # <--- Necesitamos saber quién eres
+):
+    # 1. Buscamos el producto
+    producto = db.query(modelos.Producto).filter(modelos.Producto.id == item_id).first()
+    
+    # 2. Si no existe, error 404
+    if producto is None:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    
+    # 3. EL GUARDIÁN DE LA PROPIEDAD 🛡️
+    # Comprobamos si el dueño del producto es diferente al usuario que intenta borrarlo
+    if producto.propietario_id != current_user.id:
+        raise HTTPException(
+            status_code=403, # 403 Forbidden = Prohibido (Sabemos quién eres, pero no tienes permiso)
+            detail="No tienes permiso para borrar este producto"
+        )
+    
+    # 4. Si pasamos el control, borramos
+    db.delete(producto)
+    db.commit()
+    
+    return {"mensaje": "Producto eliminado correctamente"}
