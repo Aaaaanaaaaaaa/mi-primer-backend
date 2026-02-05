@@ -7,8 +7,18 @@ import database
 import seguridad
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
+
+# Esto configura los permisos para que cualquiera pueda usar tu API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # "*" significa "Acepto peticiones de TODO el mundo"
+    allow_credentials=True,
+    allow_methods=["*"],  # Acepto GET, POST, DELETE...
+    allow_headers=["*"],
+)
 
 modelos.Base.metadata.create_all(bind=database.engine)
 
